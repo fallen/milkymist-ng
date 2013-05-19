@@ -3,7 +3,7 @@ from migen.fhdl.module import Module
 from migen.bus import wishbone
 from migen.genlib.misc import timeline
 
-class NorFlash(Module):
+class Flash(Module):
 	def __init__(self, pads, rd_timing):
 		self.bus = wishbone.Interface()
 	

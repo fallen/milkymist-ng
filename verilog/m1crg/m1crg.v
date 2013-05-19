@@ -1,46 +1,16 @@
 module m1crg #(
 	parameter in_period = 0.0,
 	parameter f_mult = 0,
-	parameter f_div = 0,
-	parameter clk2x_period = (in_period*f_div)/(2.0*f_mult)
+	parameter f_div = 0
 ) (
-	input clk50_pad,
+	input clk100_pad,
 	input trigger_reset,
 	
 	output sys_clk,
 	output reg sys_rst,
 	
 	/* Reset NOR flash */
-	output norflash_rst_n,
-	
-	/* DDR PHY clocks */
-	output clk2x_270,
-	output clk4x_wr,
-	output clk4x_wr_strb,
-	output clk4x_rd,
-	output clk4x_rd_strb,
-
-	/* DDR off-chip clocking */
-	output ddr_clk_pad_p,
-	output ddr_clk_pad_n,
-	
-	/* Ethernet PHY clocks */
-	output reg eth_phy_clk_pad,
-	input eth_rx_clk_pad,
-	input eth_tx_clk_pad,
-	output eth_rx_clk,
-	output eth_tx_clk,
-	
-	/* VGA clock */
-	output vga_clk,		/* < buffered, to internal clock network */
-	output vga_clk_pad,	/* < forwarded through ODDR2, to I/O */
-
-	/* VGA clock control */
-	input vga_progclk,
-	input vga_progdata,
-	input vga_progen,
-	output vga_progdone,
-	output vga_locked
+	output flash_rst_n
 );
 
 /*
@@ -74,20 +44,20 @@ always @(posedge sys_clk) begin
 		flash_rstcounter <= flash_rstcounter + 8'd1;
 end
 
-assign norflash_rst_n = flash_rstcounter[7];
+assign flash_rst_n = flash_rstcounter[7];
 
 /*
  * Clock management. Inspired by the NWL reference design.
  */
 
-wire sdr_clk50;
+wire sdr_clk100;
 wire clkdiv;
 
 IBUF #(
 	.IOSTANDARD("DEFAULT")
 ) clk2_iob (
-	.I(clk50_pad),
-	.O(sdr_clk50)
+	.I(clk100_pad),
+	.O(sdr_clk100)
 );
 
 BUFIO2 #(
@@ -95,7 +65,7 @@ BUFIO2 #(
 	.DIVIDE_BYPASS("FALSE"),
 	.I_INVERT("FALSE")
 ) bufio2_inst2 (
-	.I(sdr_clk50),
+	.I(sdr_clk100),
 	.IOCLK(),
 	.DIVCLK(clkdiv),
 	.SERDESSTROBE()
@@ -107,12 +77,11 @@ wire pllout0;
 wire pllout1;
 wire pllout2;
 wire pllout3;
-wire pllout4;
 wire pllout5;
 
 PLL_ADV #(
 	.BANDWIDTH("OPTIMIZED"),
-	.CLKFBOUT_MULT(4*f_mult),
+	.CLKFBOUT_MULT(2*f_mult),
 	.CLKFBOUT_PHASE(0.0),
 	.CLKIN1_PERIOD(in_period),
 	.CLKIN2_PERIOD(in_period),
@@ -129,7 +98,7 @@ PLL_ADV #(
 	.CLKOUT2_DUTY_CYCLE(0.5),
 	.CLKOUT2_PHASE(270.0),
 	
-	.CLKOUT3_DIVIDE(4*f_div),
+	.CLKOUT3_DIVIDE(2*f_div),
 	.CLKOUT3_DUTY_CYCLE(0.5),
 	.CLKOUT3_PHASE(0.0),
 	
@@ -149,12 +118,12 @@ PLL_ADV #(
 ) pll (
 	.CLKFBDCM(),
 	.CLKFBOUT(buf_pll_fb_out),
-	.CLKOUT0(pllout0), /* < x4 clock for writes */
-	.CLKOUT1(pllout1), /* < x4 clock for reads */
-	.CLKOUT2(pllout2), /* < x2 270 clock for DQS, memory address and control signals */
+	.CLKOUT0(),
+	.CLKOUT1(),
+	.CLKOUT2(),
 	.CLKOUT3(pllout3), /* < x1 clock for system and memory controller */
-	.CLKOUT4(pllout4), /* < buffered clk50 */
-	.CLKOUT5(pllout5), /* < x2 clock to off-chip DDR */
+	.CLKOUT4(),
+	.CLKOUT5(),
 	.CLKOUTDCM0(),
 	.CLKOUTDCM1(),
 	.CLKOUTDCM2(),
@@ -199,113 +168,9 @@ BUFPLL #(
 	.SERDESSTROBE(clk4x_rd_strb)
 );
 
-BUFG bufg_x2_2(
-	.I(pllout2),
-	.O(clk2x_270)
-);
-
 BUFG bufg_x1(
 	.I(pllout3),
 	.O(sys_clk)
 );
 
-wire clk50g;
-BUFG bufg_50(
-	.I(pllout4),
-	.O(clk50g)
-);
-
-wire clk2x_off;
-BUFG bufg_x2_offclk(
-	.I(pllout5),
-	.O(clk2x_off)
-);
-
-
-/* 
- * SDRAM clock
- */
-
-ODDR2 #(
-	.DDR_ALIGNMENT("NONE"),
-	.INIT(1'b0),
-	.SRTYPE("SYNC")
-) sd_clk_forward_p (
-	.Q(ddr_clk_pad_p),
-	.C0(clk2x_off),
-	.C1(~clk2x_off),
-	.CE(1'b1),
-	.D0(1'b1),
-	.D1(1'b0),
-	.R(1'b0),
-	.S(1'b0)
-);
-ODDR2 #(
-	.DDR_ALIGNMENT("NONE"),
-	.INIT(1'b0),
-	.SRTYPE("SYNC")
-) sd_clk_forward_n (
-	.Q(ddr_clk_pad_n),
-	.C0(clk2x_off),
-	.C1(~clk2x_off),
-	.CE(1'b1),
-	.D0(1'b0),
-	.D1(1'b1),
-	.R(1'b0),
-	.S(1'b0)
-);
-
-/*
- * Ethernet PHY 
- */
-
-always @(posedge clk50g)
-	eth_phy_clk_pad <= ~eth_phy_clk_pad;
-
-/* Let the synthesizer insert the appropriate buffers */
-assign eth_rx_clk = eth_rx_clk_pad;
-assign eth_tx_clk = eth_tx_clk_pad;
-
-/*
- * VGA clock
- */
-
-DCM_CLKGEN #(
-	.CLKFXDV_DIVIDE(2),
-	.CLKFX_DIVIDE(4),
-	.CLKFX_MD_MAX(3.0),
-	.CLKFX_MULTIPLY(2),
-	.CLKIN_PERIOD(20.0),
-	.SPREAD_SPECTRUM("NONE"),
-	.STARTUP_WAIT("FALSE")
-) vga_clock_gen (
-	.CLKFX(vga_clk),
-	.CLKFX180(),
-	.CLKFXDV(),
-	.STATUS(),
-	.CLKIN(clk50g),
-	.FREEZEDCM(1'b0),
-	.PROGCLK(vga_progclk),
-	.PROGDATA(vga_progdata),
-	.PROGEN(vga_progen),
-	.PROGDONE(vga_progdone),
-	.LOCKED(vga_locked),
-	.RST(~pll_lckd | sys_rst)
-);
-
-ODDR2 #(
-	.DDR_ALIGNMENT("NONE"),
-	.INIT(1'b0),
-	.SRTYPE("SYNC")
-) vga_clock_forward (
-	.Q(vga_clk_pad),
-	.C0(vga_clk),
-	.C1(~vga_clk),
-	.CE(1'b1),
-	.D0(1'b1),
-	.D1(1'b0),
-	.R(1'b0),
-	.S(1'b0)
-);
- 
 endmodule
