@@ -8,9 +8,9 @@ build/top.fpg: build/top.bin
 	tools/byteswap $< $@
 
 load: build/top.bit
-	jtag -n load.jtag
+	djtgcfg prog -d Nexys3 -i 0 -f $<
 
 clean:
 	rm -rf build/*
 
-.PHONY: load clean
+.PHONY: load clean all
