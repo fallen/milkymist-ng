@@ -1,4 +1,4 @@
-TARGET_PREFIX=lm32-elf-
+TARGET_PREFIX ?= lm32-elf-
 
 CC_normal := $(TARGET_PREFIX)gcc
 CX_normal := $(TARGET_PREFIX)g++

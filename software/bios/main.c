@@ -4,24 +4,14 @@
 #include <string.h>
 #include <uart.h>
 #include <system.h>
-#include <board.h>
+#include <id.h>
 #include <irq.h>
 #include <version.h>
-#include <crc.h>
-#include <timer.h>
 
+#include <hw/csr.h>
 #include <hw/mem.h>
-#include <net/microudp.h>
 
-#include "sdram.h"
-#include "dataflow.h"
 #include "boot.h"
-
-enum {
-	CSR_IE = 1, CSR_IM, CSR_IP, CSR_ICC, CSR_DCC, CSR_CC, CSR_CFG, CSR_EBA,
-	CSR_DC, CSR_DEBA, CSR_JTX, CSR_JRX, CSR_BP0, CSR_BP1, CSR_BP2, CSR_BP3,
-	CSR_WP0, CSR_WP1, CSR_WP2, CSR_WP3,
-};
 
 /* General address space functions */
 
@@ -125,201 +115,15 @@ static void mw(char *addr, char *value, char *count)
 	for (i=0;i<count2;i++) *addr2++ = value2;
 }
 
-static void mc(char *dstaddr, char *srcaddr, char *count)
-{
-	char *c;
-	unsigned int *dstaddr2;
-	unsigned int *srcaddr2;
-	unsigned int count2;
-	unsigned int i;
-
-	if((*dstaddr == 0) || (*srcaddr == 0)) {
-		printf("mc <dst> <src> [count]\n");
-		return;
-	}
-	dstaddr2 = (unsigned int *)strtoul(dstaddr, &c, 0);
-	if(*c != 0) {
-		printf("incorrect destination address\n");
-		return;
-	}
-	srcaddr2 = (unsigned int *)strtoul(srcaddr, &c, 0);
-	if(*c != 0) {
-		printf("incorrect source address\n");
-		return;
-	}
-	if(*count == 0) {
-		count2 = 1;
-	} else {
-		count2 = strtoul(count, &c, 0);
-		if(*c != 0) {
-			printf("incorrect count\n");
-			return;
-		}
-	}
-	for (i=0;i<count2;i++) *dstaddr2++ = *srcaddr2++;
-}
-
-static void crc(char *startaddr, char *len)
-{
-	char *c;
-	char *addr;
-	unsigned int length;
-
-	if((*startaddr == 0)||(*len == 0)) {
-		printf("crc <address> <length>\n");
-		return;
-	}
-	addr = (char *)strtoul(startaddr, &c, 0);
-	if(*c != 0) {
-		printf("incorrect address\n");
-		return;
-	}
-	length = strtoul(len, &c, 0);
-	if(*c != 0) {
-		printf("incorrect length\n");
-		return;
-	}
-
-	printf("CRC32: %08x\n", crc32((unsigned char *)addr, length));
-}
-
-/* processor registers */
-static int parse_csr(const char *csr)
-{
-	if(!strcmp(csr, "ie"))   return CSR_IE;
-	if(!strcmp(csr, "im"))   return CSR_IM;
-	if(!strcmp(csr, "ip"))   return CSR_IP;
-	if(!strcmp(csr, "icc"))  return CSR_ICC;
-	if(!strcmp(csr, "dcc"))  return CSR_DCC;
-	if(!strcmp(csr, "cc"))   return CSR_CC;
-	if(!strcmp(csr, "cfg"))  return CSR_CFG;
-	if(!strcmp(csr, "eba"))  return CSR_EBA;
-	if(!strcmp(csr, "dc"))   return CSR_DC;
-	if(!strcmp(csr, "deba")) return CSR_DEBA;
-	if(!strcmp(csr, "jtx"))  return CSR_JTX;
-	if(!strcmp(csr, "jrx"))  return CSR_JRX;
-	if(!strcmp(csr, "bp0"))  return CSR_BP0;
-	if(!strcmp(csr, "bp1"))  return CSR_BP1;
-	if(!strcmp(csr, "bp2"))  return CSR_BP2;
-	if(!strcmp(csr, "bp3"))  return CSR_BP3;
-	if(!strcmp(csr, "wp0"))  return CSR_WP0;
-	if(!strcmp(csr, "wp1"))  return CSR_WP1;
-	if(!strcmp(csr, "wp2"))  return CSR_WP2;
-	if(!strcmp(csr, "wp3"))  return CSR_WP3;
-
-	return 0;
-}
-
-static void rcsr(char *csr)
-{
-	unsigned int csr2;
-	register unsigned int value;
-
-	if(*csr == 0) {
-		printf("rcsr <csr>\n");
-		return;
-	}
-
-	csr2 = parse_csr(csr);
-	if(csr2 == 0) {
-		printf("incorrect csr\n");
-		return;
-	}
-
-	switch(csr2) {
-		case CSR_IE:   asm volatile ("rcsr %0,ie":"=r"(value)); break;
-		case CSR_IM:   asm volatile ("rcsr %0,im":"=r"(value)); break;
-		case CSR_IP:   asm volatile ("rcsr %0,ip":"=r"(value)); break;
-		case CSR_CC:   asm volatile ("rcsr %0,cc":"=r"(value)); break;
-		case CSR_CFG:  asm volatile ("rcsr %0,cfg":"=r"(value)); break;
-		case CSR_EBA:  asm volatile ("rcsr %0,eba":"=r"(value)); break;
-		case CSR_DEBA: asm volatile ("rcsr %0,deba":"=r"(value)); break;
-		case CSR_JTX:  asm volatile ("rcsr %0,jtx":"=r"(value)); break;
-		case CSR_JRX:  asm volatile ("rcsr %0,jrx":"=r"(value)); break;
-		default: printf("csr write only\n"); return;
-	}
-
-	printf("%08x\n", value);
-}
-
-static void wcsr(char *csr, char *value)
-{
-	char *c;
-	unsigned int csr2;
-	register unsigned int value2;
-
-	if((*csr == 0) || (*value == 0)) {
-		printf("wcsr <csr> <address>\n");
-		return;
-	}
-
-	csr2 = parse_csr(csr);
-	if(csr2 == 0) {
-		printf("incorrect csr\n");
-		return;
-	}
-	value2 = strtoul(value, &c, 0);
-	if(*c != 0) {
-		printf("incorrect value\n");
-		return;
-	}
-
-	switch(csr2) {
-		case CSR_IE:   asm volatile ("wcsr ie,%0"::"r"(value2)); break;
-		case CSR_IM:   asm volatile ("wcsr im,%0"::"r"(value2)); break;
-		case CSR_ICC:  asm volatile ("wcsr icc,%0"::"r"(value2)); break;
-		case CSR_DCC:  asm volatile ("wcsr dcc,%0"::"r"(value2)); break;
-		case CSR_EBA:  asm volatile ("wcsr eba,%0"::"r"(value2)); break;
-		case CSR_DC:   asm volatile ("wcsr dcc,%0"::"r"(value2)); break;
-		case CSR_DEBA: asm volatile ("wcsr deba,%0"::"r"(value2)); break;
-		case CSR_JTX:  asm volatile ("wcsr jtx,%0"::"r"(value2)); break;
-		case CSR_JRX:  asm volatile ("wcsr jrx,%0"::"r"(value2)); break;
-		case CSR_BP0:  asm volatile ("wcsr bp0,%0"::"r"(value2)); break;
-		case CSR_BP1:  asm volatile ("wcsr bp1,%0"::"r"(value2)); break;
-		case CSR_BP2:  asm volatile ("wcsr bp2,%0"::"r"(value2)); break;
-		case CSR_BP3:  asm volatile ("wcsr bp3,%0"::"r"(value2)); break;
-		case CSR_WP0:  asm volatile ("wcsr wp0,%0"::"r"(value2)); break;
-		case CSR_WP1:  asm volatile ("wcsr wp1,%0"::"r"(value2)); break;
-		case CSR_WP2:  asm volatile ("wcsr wp2,%0"::"r"(value2)); break;
-		case CSR_WP3:  asm volatile ("wcsr wp3,%0"::"r"(value2)); break;
-		default: printf("csr read only\n"); return;
-	}
-}
-
-static void dfs(char *baseaddr)
-{
-	char *c;
-	unsigned int addr;
-
-	if(*baseaddr == 0) {
-		printf("dfs <address>\n");
-		return;
-	}
-	addr = strtoul(baseaddr, &c, 0);
-	if(*c != 0) {
-		printf("incorrect address\n");
-		return;
-	}
-	print_isd_info(addr);
-}
 
 /* Init + command line */
 
 static void help(void)
 {
-	puts("Milkymist(tm) BIOS");
-	puts("Don't know what to do? Try 'flashboot'.\n");
 	puts("Available commands:");
 	puts("mr         - read address space");
 	puts("mw         - write address space");
-	puts("mc         - copy address space");
-	puts("crc        - compute CRC32 of a part of the address space");
-	puts("rcsr       - read processor CSR");
-	puts("wcsr       - write processor CSR");
-	puts("netboot    - boot via TFTP");
 	puts("serialboot - boot via SFL");
-	puts("flashboot  - boot from flash");
-	puts("version    - display version");
 }
 
 static char *get_token(char **str)
@@ -346,77 +150,16 @@ static void do_command(char *c)
 
 	if(strcmp(token, "mr") == 0) mr(get_token(&c), get_token(&c));
 	else if(strcmp(token, "mw") == 0) mw(get_token(&c), get_token(&c), get_token(&c));
-	else if(strcmp(token, "mc") == 0) mc(get_token(&c), get_token(&c), get_token(&c));
-	else if(strcmp(token, "crc") == 0) crc(get_token(&c), get_token(&c));
-
-	else if(strcmp(token, "flashboot") == 0) flashboot();
 	else if(strcmp(token, "serialboot") == 0) serialboot();
-	else if(strcmp(token, "netboot") == 0) netboot();
-	
-	else if(strcmp(token, "version") == 0) puts(VERSION);
-
 	else if(strcmp(token, "help") == 0) help();
-
-	else if(strcmp(token, "rcsr") == 0) rcsr(get_token(&c));
-	else if(strcmp(token, "wcsr") == 0) wcsr(get_token(&c), get_token(&c));
-	
-	else if(strcmp(token, "ddrrow") == 0) ddrrow(get_token(&c));
-	else if(strcmp(token, "ddrsw") == 0) ddrsw();
-	else if(strcmp(token, "ddrhw") == 0) ddrhw();
-	else if(strcmp(token, "ddrrd") == 0) ddrrd(get_token(&c));
-	else if(strcmp(token, "ddrwr") == 0) ddrwr(get_token(&c));
-	else if(strcmp(token, "memtest") == 0) memtest();
-	else if(strcmp(token, "ddrinit") == 0) ddrinit();
-	else if(strcmp(token, "asmiprobe") == 0) asmiprobe();
-	
-	else if(strcmp(token, "dfs") == 0) dfs(get_token(&c));
-
 	else if(strcmp(token, "") != 0)
 		printf("Command not found\n");
 }
 
-int rescue;
-extern unsigned int _edata;
-
-static void crcbios(void)
-{
-	unsigned int offset_bios;
-	unsigned int length;
-	unsigned int expected_crc;
-	unsigned int actual_crc;
-
-	/*
-	 * _edata is located right after the end of the flat
-	 * binary image. The CRC tool writes the 32-bit CRC here.
-	 * We also use the address of _edata to know the length
-	 * of our code.
-	 */
-	offset_bios = rescue ? FLASH_OFFSET_RESCUE_BIOS : FLASH_OFFSET_REGULAR_BIOS;
-	expected_crc = _edata;
-	length = (unsigned int)&_edata - offset_bios;
-	actual_crc = crc32((unsigned char *)offset_bios, length);
-	if(expected_crc == actual_crc)
-		printf("BIOS CRC passed (%08x)\n", actual_crc);
-	else {
-		printf("BIOS CRC failed (expected %08x, got %08x)\n", expected_crc, actual_crc);
-		printf("The system will continue, but expect problems.\n");
-	}
-}
-
-static void print_mac(void)
-{
-	unsigned char *macadr = (unsigned char *)FLASH_OFFSET_MAC_ADDRESS;
-
-	printf("MAC address: %02x:%02x:%02x:%02x:%02x:%02x\n", macadr[0], macadr[1], macadr[2], macadr[3], macadr[4], macadr[5]);
-}
-
 static const char banner[] =
-	"\nMILKYMIST(tm) v"VERSION" BIOS   http://www.milkymist.org\n"
+	"\nMM BIOS v"VERSION" (minisoc)\n"
 	"(c) Copyright 2007-2013 Sebastien Bourdeauducq\n"
-	"Built "__DATE__" "__TIME__"\n\n"
-	"This program is free software: you can redistribute it and/or modify\n"
-	"it under the terms of the GNU General Public License as published by\n"
-	"the Free Software Foundation, version 3 of the License.";
+	"Built "__DATE__" "__TIME__"\n";
 
 static void readstr(char *s, int size)
 {
@@ -455,30 +198,21 @@ static int test_user_abort(void)
 {
 	char c;
 
-	printf("Automatic boot in 2 seconds...\n");
-	printf("Q/ESC: abort boot\n");
-	printf("F7:    boot from serial\n");
-	printf("F8:    boot from network\n");
-	timer_enable(0);
-	timer_set_reload(0);
-	timer_set_counter(get_system_frequency()*2);
-	timer_enable(1);
-	while(timer_get()) {
+	printf("Boot in 2 seconds (Q/ESC to abort)...\n");
+	timer0_en_write(0);
+	timer0_reload_write(0);
+	timer0_load_write(identifier_frequency_read()*2);
+	timer0_en_write(1);
+	timer0_update_value_write(1);
+	while(timer0_value_read()) {
 		if(readchar_nonblock()) {
 			c = readchar();
 			if((c == 'Q')||(c == '\e')) {
 				puts("Aborted");
 				return 0;
 			}
-			if(c == 0x06) {
-				serialboot();
-				return 0;
-			}
-			if(c == 0x07) {
-				netboot();
-				return 0;
-			}
 		}
+		timer0_update_value_write(1);
 	}
 	return 1;
 }
@@ -486,15 +220,7 @@ static int test_user_abort(void)
 static void boot_sequence(void)
 {
 	if(test_user_abort()) {
-		if(rescue) {
-			serialboot();
-			netboot();
-			flashboot();
-		} else {
-			flashboot();
-			serialboot();
-			netboot();
-		}
+		serialboot();
 		printf("No boot medium found\n");
 	}
 }
@@ -502,25 +228,13 @@ static void boot_sequence(void)
 int main(int i, char **c)
 {
 	char buffer[64];
-	int ddr_ok;
-
-	rescue = !((unsigned int)main > FLASH_OFFSET_REGULAR_BIOS);
 
 	irq_setmask(0);
 	irq_setie(1);
 	uart_init();
 	puts(banner);
-	crcbios();
-	if(rescue)
-		printf("Rescue mode\n");
-	board_init();
-	ethreset();
-	print_mac();
-	ddr_ok = ddrinit();
-	if(ddr_ok)
-		boot_sequence();
-	else
-		printf("Memory initialization failed\n");
+	id_print();
+	boot_sequence();
 	
 	while(1) {
 		putsnonl("\e[1mBIOS>\e[0m ");

@@ -1,7 +1,7 @@
 M2DIR=../..
 include $(M2DIR)/software/common.mak
 
-OBJECTS=crt0.o isr.o sdram.o main.o boot-helper.o boot.o dataflow.o
+OBJECTS=crt0.o isr.o main.o boot-helper.o boot.o
 
 all: bios.bin
 
@@ -9,20 +9,16 @@ all: bios.bin
 -include $(OBJECTS:.o=.d)
 
 %.bin: %.elf
-	$(MAKE) -C $(M2DIR)/tools
 	$(OBJCOPY) -O binary $< $@
 	chmod -x $@
-	$(M2DIR)/tools/mkmmimg $@ write
 
 bios.elf: linker.ld $(OBJECTS) libs
-bios-rescue.elf: linker-rescue.ld $(OBJECTS) libs
 
 %.elf:
 	$(LD) $(LDFLAGS) -T $< -N -o $@ $(OBJECTS) \
-		-L$(M2DIR)/software/libnet \
 		-L$(M2DIR)/software/libbase \
 		-L$(M2DIR)/software/libcompiler-rt \
-		-lnet -lbase -lcompiler-rt
+		-lbase -lcompiler-rt
 	chmod -x $@
 
 main.o: main.c
@@ -35,14 +31,10 @@ main.o: main.c
 	$(assemble)
 
 libs:
-	make -C $(M2DIR)/software/libcompiler-rt
-	make -C $(M2DIR)/software/libbase
-	make -C $(M2DIR)/software/libnet
-
-flash: bios.bin
-	m1nor bios.bin
+	$(MAKE) -C $(M2DIR)/software/libcompiler-rt
+	$(MAKE) -C $(M2DIR)/software/libbase
 
 clean:
-	rm -f $(OBJECTS) $(OBJECTS:.o=.d) bios.elf bios.bin bios-rescue.elf bios-rescue.bin .*~ *~
+	$(RM) $(OBJECTS) $(OBJECTS:.o=.d) bios.elf bios.bin .*~ *~
 
-.PHONY: main.o clean libs flash
+.PHONY: all main.o clean libs
