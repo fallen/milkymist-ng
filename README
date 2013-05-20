@@ -1,4 +1,4 @@
-[> Milkymist-NG system-on-chip
+[> Nexys3 mini port of Milkymist-NG system-on-chip
 ------------------------------
 
 This is the next-generation Milkymist(tm) system-on-chip design,
@@ -13,6 +13,26 @@ The Milkymist-NG SoC supports the Milkymist One board. Obtain yours at:
 Note that the -NG version is still experimental work in progress. For the
 production version of Milkymist SoC, visit:
   https://github.com/milkymist/milkymist
+
+This GitHub repository contains a minimalistic port of the Milkymist-ng 
+SoC.
+
+For now it contains
+
+- LatticeMico32 CPU (bus master)
+- Timer (slave)
+- on-chip ROM (slave) to hold the BIOS
+- on-chip RAM (slave) to allow the BIOS to run
+- Serial line (slave) to access the BIOS prompt
+
+For now the Nexys3 port does not use the on-board PSRAM nor the PCM "flash" device.
+
+For any question about the original (full featured) milkymist-ng SoC you can go ask
+directly on IRC (#Milkymist on freenode) or on the mailing list ( devel [AT] lists.milkymist.org )
+
+For any question regarding this particular port, please ask Yann Sionneau
+either directly by e-mail (yann dot sionneau [at] gmail [do t] com) or on
+IRC or on the mailing list.
 
 [> Instructions (software)
 --------------------------
@@ -35,30 +55,25 @@ production version of Milkymist SoC, visit:
   export CRTDIR=/path_to/compiler-rt
 
 4. Build and flash the BIOS (part of this source distribution).
+  ./build.py --no-run (to generate csr.h) # Please install Migen first, see next section
   cd software/bios
   make
-  make flash
 
-The second command requires m1nor, FJMEM and UrJTAG.
-These tools can be found at:
-  https://github.com/milkymist/fjmem-m1
-  http://urjtag.org
-  
 [> Instructions (gateware)
 --------------------------
 First, download and install Migen from:
   https://github.com/milkymist/migen
+
+You will need Python >= 3.3
 
 Once this is done, build the bitstream with:
   make
 This will generate the build/soc.bit programming file.
 Use:
   make load
-to load it with UrJTAG.
+to load it with djtgcfg.
 
-The SoC expects a bootloader to be located in flash at 0x860000, just
-like the legacy SoC did. However, there is no binary compatibility and a
-new BIOS needs to be built and flashed for the -NG SoC.
+The SoC expects a bootloader to be located in on-chip ROM at 0x00000000.
 
 Enjoy!
 
